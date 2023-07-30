@@ -35,7 +35,7 @@ def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
         f.write(f"(assert ({sign} Y_0 {mid}))\n")
 
 class MultiStepVerifier:
-    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, tolerance_ratio=0.1, binary_search_divide_ratio=0.5):
+    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01):
         self.d_lbs = d_lbs
         self.d_ubs = d_ubs
         self.v_lbs = v_lbs
@@ -43,8 +43,6 @@ class MultiStepVerifier:
         assert latent_bounds >= 0
         self.latent_bounds = latent_bounds
         self.step = step
-        self.tolerance_ratio = tolerance_ratio
-        self.binary_search_divide_ratio = binary_search_divide_ratio    
 
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
@@ -58,7 +56,7 @@ class MultiStepVerifier:
         else:
             raise NotImplementedError
     
-    def binary_search(self, lb_ub, ub_lb, init_box, index, tolerance):
+    def get_overlapping_cells(self, lb_ub, ub_lb, init_box, index):
         # lb_ub: the lower bound of the upper bound
         # ub_lb: the upper bound of the lower bound
         # init_box: the initial box
@@ -69,54 +67,47 @@ class MultiStepVerifier:
             # then the vehicle is already in the danger zone.
             # this case should be handled outside of this function
             assert lb_ub > 0.0
-
+        
+        ubs = self.d_ubs if index == 0 else self.v_ubs
+        lbs = self.d_lbs if index == 0 else self.v_lbs
+        
         ## search the lb
-        ### check if the output are guaranteed greater or equal to 0
-        logging.info("        binary search for lb")
-        if self.check_property(init_box, 0.0, ">="):
-            ### if yes, then the lb_lb is 0, and we can start to search the lb
-            left = 0.0
-            right = lb_ub
-            while right-left >= tolerance:
-                logging.info(f"            left: {left}, right: {right}")
-                #mid = (left+right)/2.0
-                mid = right - (right-left)*self.binary_search_divide_ratio
-                if self.check_property(init_box, mid, ">="):
-                    logging.info(f"            >=mid: {mid}, verified")
-                    left = mid
-                else:
-                    logging.info(f"            >=mid: {mid}, not verified")
-                    right = mid
-            lb = left
-        else:
-            logging.info("        the lb is not guaranteed greater or equal to 0")
-            ### if no, then the lb_lb can be value less than 0
-            #### if searching for the lb of the distance, then the vehicle can in the danger zone
-            if index == 0:
-                return (-1, 0)
-            #### if searching for the lb of the velocity, then the vehicle can be stopped
-            elif index == 1:
-                lb = 0.0
+        logging.info(f"        search for lb for idx {index}")
+        right_idx = math.floor((lb_ub - lbs[0])/(ubs[0]-lbs[0]))
+        found_lb = False
+        for i in range(right_idx, -1, -1):
+            logging.info(f"            checking output >= {lbs[i]}: {i}")
+            try:
+                if self.check_property(init_box, lbs[i], ">="):
+                    logging.info(f"            verified, the lb idx is {i}")
+                    found_lb = True
+                    lb_idx = i
+                    break
+            except:
+                self.error_during_verification = True
+                logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
+
+        if not found_lb:
+            logging.info(f"            the lb is not guaranteed greater or equal to {lbs[0]}")
+            lb_idx = -1
         
         ## search the ub
-        ### since the distance and velocity are always decreasing,
-        ### the ub_ub is the ub of the initial box
-        left = ub_lb
-        right = init_box[index][1]
-        logging.info("        binary search for ub")
-        while right-left >= tolerance or right<=0.0:
-            logging.info(f"            left: {left}, right: {right}")
-            #mid = (left+right)/2.0
-            mid = left + (right-left)*self.binary_search_divide_ratio
-            if self.check_property(init_box, mid, "<="): # check if the output are guaranteed less or equal to "mid"
-                logging.info(f"            <=mid: {mid}, verified")
-                right = mid
-            else:
-                logging.info(f"            <=mid: {mid}, not verified")
-                left = mid
-        ub = right
-
-        return (lb, ub)
+        logging.info(f"        search for ub for idx {index}")
+        left_idx = math.ceil((ub_lb - ubs[0])/(ubs[0]-lbs[0]))
+        found_ub = False
+        for i in range(left_idx, len(ubs)):
+            logging.info(f"            checking output <= {ubs[i]}: {i}")
+            if self.check_property(init_box, ubs[i], "<="):
+                logging.info(f"            verified, the ub idx is {i}")
+                found_ub = True
+                ub_idx = i
+                break
+        if not found_ub:
+            logging.info(f"            the ub is not guaranteed less or equal to {ubs[-1]}")
+            ub_idx = len(ubs)
+        
+        return (lb_idx, ub_idx)
+        
     
     def get_intervals(self, d_idx, v_idx):
         d_lb = self.d_lbs[d_idx]
@@ -151,11 +142,9 @@ class MultiStepVerifier:
         if d_lb_sim <= 0.0:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return (-1, 0, 0, 0)
-        
-        logging.info("    binary search for d_lb_ and d_ub_") 
-        d_lb_, d_ub_ = self.binary_search(d_lb_sim, d_ub_sim, init_box, index=0, tolerance=(self.d_lbs[1]-self.d_lbs[0])*self.tolerance_ratio)
-        logging.info(f"    d_lb_: {d_lb_}, d_ub_: {d_ub_}")
-        if d_lb_ < 0:
+
+        d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, index=0)
+        if d_lb_idx == -1:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return (-1, 0, 0, 0)
 
@@ -170,66 +159,47 @@ class MultiStepVerifier:
         v_ub_sim = torch.max(outputs).item()
         logging.info(f"    v_lb_sim: {v_lb_sim}, v_ub_sim: {v_ub_sim}")
         assert v_ub_sim <= v_ub
-        logging.info("    binary search for v_lb_ and v_ub_")
-        v_lb_, v_ub_ = self.binary_search(v_lb_sim, v_ub_sim, init_box, index=1, tolerance=(self.v_lbs[1]-self.v_lbs[0])*self.tolerance_ratio)
-        logging.info(f"    v_lb_: {v_lb_}, v_ub_: {v_ub_}")
 
-        return (d_lb_, d_ub_, v_lb_, v_ub_)
-    
-    def get_overlapping_cells_from_intervals(self, d_bounds, v_bounds):
-        """
-        Get the overlapping cells from the intervals.
-        :param d_bounds: distance bounds
-        :param v_bounds: velocity bounds
-        :return: overlapping cells
-        """
+        v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, index=1)
 
-        reachable_cells = set()
-
-        # get the lower and upper bound indices of the output interval
-        p_lb_idx = math.floor((d_bounds[0] - self.d_lbs[0])/(self.d_ubs[0]-self.d_lbs[0])) # floor
-        p_ub_idx = math.ceil((d_bounds[1] - self.d_lbs[0])/(self.d_ubs[0]-self.d_lbs[0])) # ceil
-
-        theta_lb_idx = math.floor((v_bounds[0] - self.v_lbs[0])/(self.v_ubs[0]-self.v_lbs[0])) # floor
-        theta_ub_idx = math.ceil((v_bounds[1] - self.v_lbs[0])/(self.v_ubs[0]-self.v_lbs[0])) # ceil
-
-        assert 0<=p_lb_idx<len(self.d_lbs)
-        assert 1<=p_ub_idx<=len(self.d_ubs)
-        assert 0<=theta_lb_idx<len(self.v_lbs)
-        assert 1<=theta_ub_idx<=len(self.v_ubs)
-
-        for p_idx in range(p_lb_idx, p_ub_idx):
-            for theta_idx in range(theta_lb_idx, theta_ub_idx):
-                reachable_cells.add((p_idx, theta_idx))
-
-        return reachable_cells
+        return (d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx)
     
     def compute_next_reachable_cells(self, d_idx, v_idx):
         result_dict = dict()
 
         time_dict = dict()
         self.num_calls_alpha_beta_crown = 0
+        self.error_during_verification = False
         time_start = time.time()
         interval = self.get_intervals(d_idx, v_idx)
         time_end_get_intervals = time.time()
-        logging.info(f"    Interval: {interval}")
+        logging.info(f"    Interval index: {interval}")
         if interval[0] < 0:
             result_dict["reachable_cells"] = {(-2, -2)}
         
-        elif interval[3] < 0:
-            # in this case, the vehicle must already stopped
-            result_dict["reachable_cells"] = {(-3, -3)}
         else: 
-            time_start_get_overlapping_cells = time.time()
-            reachable_cells = self.get_overlapping_cells_from_intervals(interval[:2], interval[2:])
+            reachable_cells = set()
+            
+            assert 0 <= interval[0] < len(self.d_lbs)
+            assert 1 <= interval[1] <= len(self.d_ubs)
+            if interval[2] == -1:
+                # in this case, the vehicle must already stopped
+                reachable_cells.add((-3, -3))
+                interval[2] = 0
+            assert 0 <= interval[2] < len(self.v_lbs)
+            assert 1 <= interval[3] <= len(self.v_ubs)
+
+            for d_idx in range(interval[0], interval[1]+1):
+                for v_idx in range(interval[2], interval[3]+1):
+                    reachable_cells.add((d_idx, v_idx))            
             result_dict["reachable_cells"] = reachable_cells
-            time_end_get_overlapping_cells = time.time()
-            time_dict["get_overlapping_cells_time"] = time_end_get_overlapping_cells - time_start_get_overlapping_cells
+
         time_end = time.time()
         time_dict["whole_time"] = time_end - time_start
         time_dict["get_intervals_time"] = time_end_get_intervals - time_start
         result_dict["time"] = time_dict
         result_dict["num_calls_alpha_beta_crown"] = self.num_calls_alpha_beta_crown
+        result_dict["error_during_verification"] = self.error_during_verification
         return result_dict
 
         

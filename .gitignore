@@ -1,2 +1,5 @@
 results/
 __pycache__/
+*.vnnlib
+*.vnnlib.compiled
+*.npy
