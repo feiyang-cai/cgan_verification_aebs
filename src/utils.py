@@ -5,7 +5,6 @@ from utils import load_model
 import math
 import logging
 import time
-from collections import defaultdict
 
 def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
 
@@ -50,6 +49,8 @@ class MultiStepVerifier:
         for batch_size in [5000, 10]:
             arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
             try:
+                logging.info(f"            batch_size: {batch_size}")
+                torch.cuda.empty_cache()
                 verified_status = abcrown.main()
                 break
             except:
@@ -162,6 +163,7 @@ class MultiStepVerifier:
         d_lb_sim = torch.min(outputs).item()
         d_ub_sim = torch.max(outputs).item()
         logging.info(f"    d_lb_sim: {d_lb_sim}, d_ub_sim: {d_ub_sim}")
+        del outputs
         
         #assert d_ub_sim <= d_ub
         if d_lb_sim <= 0.0:
@@ -189,6 +191,7 @@ class MultiStepVerifier:
         v_ub_sim = torch.max(outputs).item()
         logging.info(f"    v_lb_sim: {v_lb_sim}, v_ub_sim: {v_ub_sim}")
         assert v_ub_sim <= v_ub
+        del outputs
 
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, index=1)
         if v_lb_idx == -2 or v_ub_idx == -2:
