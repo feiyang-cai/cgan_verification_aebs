@@ -83,6 +83,8 @@ class MultiStepVerifier:
                     found_lb = True
                     lb_idx = i
                     break
+                else:
+                    pass
             except:
                 self.error_during_verification = True
                 logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
@@ -97,11 +99,18 @@ class MultiStepVerifier:
         found_ub = False
         for i in range(left_idx, len(ubs)):
             logging.info(f"            checking output <= {ubs[i]}: {i}")
-            if self.check_property(init_box, ubs[i], "<="):
-                logging.info(f"            verified, the ub idx is {i}")
-                found_ub = True
-                ub_idx = i
-                break
+            try:
+                if self.check_property(init_box, ubs[i], "<="):
+                    logging.info(f"            verified, the ub idx is {i}")
+                    found_ub = True
+                    ub_idx = i
+                    break
+                else:
+                    pass
+            except:
+                self.error_during_verification = True
+                logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
+
         if not found_ub:
             logging.info(f"            the ub is not guaranteed less or equal to {ubs[-1]}")
             ub_idx = len(ubs)
@@ -162,7 +171,7 @@ class MultiStepVerifier:
 
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, index=1)
 
-        return (d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx)
+        return [d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx]
     
     def compute_next_reachable_cells(self, d_idx, v_idx):
         result_dict = dict()
@@ -181,13 +190,13 @@ class MultiStepVerifier:
             reachable_cells = set()
             
             assert 0 <= interval[0] < len(self.d_lbs)
-            assert 1 <= interval[1] <= len(self.d_ubs)
+            assert 0 <= interval[1] < len(self.d_ubs)
             if interval[2] == -1:
                 # in this case, the vehicle must already stopped
                 reachable_cells.add((-3, -3))
                 interval[2] = 0
             assert 0 <= interval[2] < len(self.v_lbs)
-            assert 1 <= interval[3] <= len(self.v_ubs)
+            assert 0 <= interval[3] < len(self.v_ubs)
 
             for d_idx in range(interval[0], interval[1]+1):
                 for v_idx in range(interval[2], interval[3]+1):

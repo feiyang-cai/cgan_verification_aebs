@@ -19,7 +19,7 @@ def main():
     args.add_argument('--v_range_ub', type=float, default=+30.0, help='Upper bound for v.', hierarchy=h + ['v_ub'])
     args.add_argument('--v_num_bin', type=int, default=100, help='Number of bins for v.', hierarchy=h + ['v_num_bin'])
     args.add_argument('--reachability_steps', type=int, default=1, help='Number of reachability steps.', hierarchy=h + ['reachability_steps'])
-    args.add_argument('--latent_bounds', type=float, default=0.05, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
+    args.add_argument('--latent_bounds', type=float, default=0.01, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
     args.add_argument('--server_id', type=int, default=1, help='Server ID.', hierarchy=h + ['server_id'])
     args.add_argument('--server_total_num', type=int, default=1, help='Total number of servers.', hierarchy=h + ['server_total_num'])
     args.parse_config()
