@@ -75,6 +75,7 @@ class MultiStepVerifier:
         logging.info(f"        search for lb for idx {index}")
         right_idx = math.floor((lb_ub - lbs[0])/(ubs[0]-lbs[0]))
         found_lb = False
+        error_found_lb = False
         for i in range(right_idx, -1, -1):
             logging.info(f"            checking output >= {lbs[i]}: {i}")
             try:
@@ -87,16 +88,21 @@ class MultiStepVerifier:
                     pass
             except:
                 self.error_during_verification = True
+                error_found_lb = True
                 logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
 
         if not found_lb:
             logging.info(f"            the lb is not guaranteed greater or equal to {lbs[0]}")
             lb_idx = -1
+            if error_found_lb:
+                logging.info(f"            this bound cannot be verified due to error, return -2")
+                lb_idx = -2
         
         ## search the ub
         logging.info(f"        search for ub for idx {index}")
         left_idx = math.ceil((ub_lb - ubs[0])/(ubs[0]-lbs[0]))
         found_ub = False
+        error_found_ub = False
         for i in range(left_idx, len(ubs)):
             logging.info(f"            checking output <= {ubs[i]}: {i}")
             try:
@@ -109,11 +115,15 @@ class MultiStepVerifier:
                     pass
             except:
                 self.error_during_verification = True
+                error_found_ub = True
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
 
         if not found_ub:
             logging.info(f"            the ub is not guaranteed less or equal to {ubs[-1]}")
             ub_idx = len(ubs)
+            if error_found_ub:
+                logging.info(f"            this bound cannot be verified due to error, return -2")
+                ub_idx = -2
         
         return (lb_idx, ub_idx)
         
@@ -153,9 +163,14 @@ class MultiStepVerifier:
             return (-1, 0, 0, 0)
 
         d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, index=0)
+
+        if d_lb_idx == -2 or d_ub_idx == -2:
+            # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
+            return [-2, -2, -2, -2]
+        
         if d_lb_idx == -1:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
-            return (-1, 0, 0, 0)
+            return [-1, 0, 0, 0]
 
         # velocity
         arguments.Config.all_args['model']['name'] = 'Customized("custom_model_data", "SingleStep", index=1)'
@@ -170,6 +185,9 @@ class MultiStepVerifier:
         assert v_ub_sim <= v_ub
 
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, index=1)
+        if v_lb_idx == -2 or v_ub_idx == -2:
+            # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
+            return [-2, -2, -2, -2]
 
         return [d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx]
     
@@ -183,7 +201,11 @@ class MultiStepVerifier:
         interval = self.get_intervals(d_idx, v_idx)
         time_end_get_intervals = time.time()
         logging.info(f"    Interval index: {interval}")
-        if interval[0] < 0:
+        if interval == [-2, -2, -2, -2]:
+            result_dict["error"] = True
+            result_dict["reachable_cells"] = {(-1, -1)}
+        
+        elif interval[0] == -1:
             result_dict["reachable_cells"] = {(-2, -2)}
         
         else: 
