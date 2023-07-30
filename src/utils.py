@@ -47,7 +47,13 @@ class MultiStepVerifier:
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
         save_vnnlib(init_box, mid, neg_sign)
-        verified_status = abcrown.main()
+        for batch_size in [5000, 10]:
+            arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
+            try:
+                verified_status = abcrown.main()
+                break
+            except:
+                continue
         self.num_calls_alpha_beta_crown += 1
         if verified_status == "unsafe-pgd":
             return False
