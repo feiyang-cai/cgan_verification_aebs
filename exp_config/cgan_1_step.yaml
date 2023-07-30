@@ -40,4 +40,5 @@ bab:
     candidates: 3
     reduceop: max
   interm_transfer: False
+  timeout: 3600
   
