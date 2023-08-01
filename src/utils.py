@@ -6,6 +6,89 @@ import math
 import logging
 import time
 
+from matplotlib import pyplot as plt
+from matplotlib.path import Path
+import matplotlib.patches as patches
+
+class Plotter:
+    def __init__(self, d_lbs, v_lbs) -> None:
+        self.fig, self.ax = plt.subplots(figsize=(8,8), dpi=200)
+        self.d_bounds = [np.inf, -np.inf]
+        self.v_bounds = [np.inf, -np.inf]
+        self.d_lbs = d_lbs
+        self.v_lbs = v_lbs
+        self.cell_width = (d_lbs[1] - d_lbs[0])
+        self.cell_height = (v_lbs[1] - v_lbs[0])
+        self.legend_label_list = []
+        self.legend_list = []
+    
+
+    def add_patches(self, patches, color, label=None):
+        for patch in patches:
+            x = patch[0]
+            y = patch[2]
+            width = patch[1] - patch[0]
+            height = patch[3] - patch[2]
+            rec = plt.Rectangle((x, y), width, height, facecolor=color, edgecolor='none', alpha=1.0)
+            self.ax.add_patch(rec)
+            self.d_bounds[0] = min(self.d_bounds[0], x)
+            self.d_bounds[1] = max(self.d_bounds[1], x+width)
+            self.v_bounds[0] = min(self.v_bounds[0], y)
+            self.v_bounds[1] = max(self.v_bounds[1], y+height)
+
+        if label is not None:
+            self.legend_label_list.append(label)
+            self.legend_list.append(rec)
+    
+    def add_cells(self, cells, color, label=None, filled=False):
+        for cell in cells:
+            x = self.d_lbs[cell[0]]
+            y = self.v_lbs[cell[1]]
+            cell = plt.Rectangle((x, y), self.cell_width, self.cell_height, fill=filled, linewidth=2, facecolor=color, edgecolor='none', alpha=1)
+            self.ax.add_patch(cell)
+            self.d_bounds[0] = min(self.d_bounds[0], x)
+            self.d_bounds[1] = max(self.d_bounds[1], x+self.cell_width)
+            self.v_bounds[0] = min(self.v_bounds[0], y)
+            self.v_bounds[1] = max(self.v_bounds[1], y+self.cell_height)
+
+        if label is not None:
+            self.legend_label_list.append(label)
+            self.legend_list.append(cell)
+    
+    def add_simulations(self, ds, vs, color, label=None):
+        scatter = self.ax.scatter(ds, vs, c=color, alpha=0.8, s=1)
+        if label is not None:
+            self.legend_label_list.append(label)
+            self.legend_list.append(scatter)
+    
+    def save_figure(self, file_name, x_range=None, y_range=None):
+        if x_range is not None and y_range is not None:
+            self.ax.set_xlim(x_range[0], x_range[1])
+            self.ax.set_ylim(y_range[0], y_range[1])
+        else:    
+            self.ax.set_xlim(self.d_bounds[0]-0.2, self.d_bounds[1]+0.2)
+            self.ax.set_ylim(self.v_bounds[0]-0.2, self.v_bounds[1]+0.2)
+
+        ## plot grids
+        for d_lb in self.d_lbs:
+            X = [d_lb, d_lb]
+            Y = [self.v_lbs[0], self.v_lbs[-1]]
+            self.ax.plot(X, Y, 'lightgray', alpha=0.2)
+
+        for v_lb in self.v_lbs:
+            Y = [v_lb, v_lb]
+            X = [self.d_lbs[0], self.d_lbs[-1]]
+            self.ax.plot(X, Y, 'lightgray', alpha=0.2)
+        
+        self.ax.set_xlabel(r"$d$ (m)")
+        self.ax.set_ylabel(r"$v$ (m/s)")
+        if len(self.legend_list) != 0:
+            #self.ax.legend(self.legend_list, self.legend_label_list, loc='lower right')
+            self.ax.legend(self.legend_list, self.legend_label_list, loc='upper right', bbox_to_anchor=(1.0, 1.05), borderaxespad=0.)
+        self.fig.savefig(file_name)
+        plt.close()
+
+
 def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
 
     with open(spec_path, "w") as f:
@@ -63,7 +146,7 @@ class MultiStepVerifier:
         else:
             raise NotImplementedError
     
-    def get_overlapping_cells(self, lb_ub, ub_lb, init_box, index):
+    def get_overlapping_cells(self, lb_ub, ub_lb, init_box, ub_ub_idx, index):
         # lb_ub: the lower bound of the upper bound
         # ub_lb: the upper bound of the lower bound
         # init_box: the initial box
@@ -108,30 +191,37 @@ class MultiStepVerifier:
         ## search the ub
         logging.info(f"        search for ub for idx {index}")
         left_idx = math.ceil((ub_lb - ubs[0])/(ubs[0]-lbs[0]))
-        found_ub = False
-        error_found_ub = False
-        for i in range(left_idx, len(ubs)):
+        left_idx = max(left_idx, 0)
+        left_idx = min(left_idx, ub_ub_idx-1)
+        logging.info(f"            left_idx: {left_idx}, right_idx: {ub_ub_idx-1}")
+        if left_idx == ub_ub_idx-1:
+            if left_idx == 0:
+                logging.info(f"            checking output <= 0")
+                if self.check_property(init_box, 0.0, "<="):
+                    logging.info(f"            verified, the ub idx is {-1}")
+                    ub_idx = -1
+                else:
+                    logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
+                    ub_idx = -2
+            else: 
+                logging.info(f"            verification is not needed, the ub idx is {left_idx}")
+                ub_idx = left_idx
+            
+        for i in range(left_idx, ub_ub_idx-1):
             logging.info(f"            checking output <= {ubs[i]}: {i}")
             try:
                 if self.check_property(init_box, ubs[i], "<="):
                     logging.info(f"            verified, the ub idx is {i}")
-                    found_ub = True
                     ub_idx = i
                     break
                 else:
                     pass
             except:
                 self.error_during_verification = True
-                error_found_ub = True
+                ub_idx = ub_ub_idx-1
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
-
-        if not found_ub:
-            logging.info(f"            the ub is not guaranteed less or equal to {ubs[-1]}")
-            ub_idx = len(ubs)
-            if error_found_ub:
-                logging.info(f"            this bound cannot be verified due to error, return -2")
-                ub_idx = -2
         
+        logging.info(f"        lb_idx: {lb_idx}, ub_idx: {ub_idx}") 
         return (lb_idx, ub_idx)
         
     
@@ -154,7 +244,7 @@ class MultiStepVerifier:
         inputs = np.stack(inputs, axis=1)
 
         # distance 
-        arguments.Config.all_args['model']['name'] = 'Customized("custom_model_data", "SingleStep", index=0)'
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
         model_ori = load_model().cuda()
         model_ori.eval()
@@ -170,7 +260,8 @@ class MultiStepVerifier:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return (-1, 0, 0, 0)
 
-        d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, index=0)
+        ub_ub_idx = d_idx+1
+        d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, ub_ub_idx, index=0)
 
         if d_lb_idx == -2 or d_ub_idx == -2:
             # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
@@ -181,7 +272,7 @@ class MultiStepVerifier:
             return [-1, 0, 0, 0]
 
         # velocity
-        arguments.Config.all_args['model']['name'] = 'Customized("custom_model_data", "SingleStep", index=1)'
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
         model_ori = load_model().cuda()
         model_ori.eval()
@@ -193,10 +284,13 @@ class MultiStepVerifier:
         assert v_ub_sim <= v_ub
         del outputs
 
-        v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, index=1)
+        ub_ub_idx = v_idx+1
+        v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, ub_ub_idx, index=1)
         if v_lb_idx == -2 or v_ub_idx == -2:
             # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
             return [-2, -2, -2, -2]
+        if v_ub_idx == -1:
+            return [d_lb_idx, d_ub_idx, -1, -1]
 
         return [d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx]
     
@@ -217,6 +311,9 @@ class MultiStepVerifier:
         elif interval[0] == -1:
             result_dict["reachable_cells"] = {(-2, -2)}
         
+        elif interval[2] == -1 and interval[3] == -1:
+            result_dict["reachable_cells"] = {(-3, -3)}
+         
         else: 
             reachable_cells = set()
             
