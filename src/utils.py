@@ -132,18 +132,22 @@ class MultiStepVerifier:
         save_vnnlib(init_box, mid, neg_sign)
         for batch_size in [5000, 10]:
             arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
+            verified_status = None
             try:
                 logging.info(f"            batch_size: {batch_size}")
                 torch.cuda.empty_cache()
                 verified_status = abcrown.main()
                 break
             except:
+                logging.info(f"            batch_size: {batch_size} failed")
                 continue
         self.num_calls_alpha_beta_crown += 1
         if verified_status == "unsafe-pgd":
             return False
         elif verified_status == "safe":
             return True
+        elif verified_status == None:
+            raise RuntimeError("abcrown failed")
         else:
             raise NotImplementedError
     
@@ -177,7 +181,7 @@ class MultiStepVerifier:
                     break
                 else:
                     pass
-            except:
+            except RuntimeError:
                 self.error_during_verification = True
                 error_found_lb = True
                 logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
@@ -198,12 +202,17 @@ class MultiStepVerifier:
         if left_idx == ub_ub_idx-1:
             if left_idx == 0:
                 logging.info(f"            checking output <= 0")
-                if self.check_property(init_box, 0.0, "<="):
-                    logging.info(f"            verified, the ub idx is {-1}")
-                    ub_idx = -1
-                else:
-                    logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
-                    ub_idx = -2
+                try:
+                    if self.check_property(init_box, 0.0, "<="):
+                        logging.info(f"            verified, the ub idx is {-1}")
+                        ub_idx = -1
+                    else:
+                        logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
+                        ub_idx = 0
+                except RuntimeError:
+                    logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
+                    self.error_during_verification = True
+                    ub_idx = 0
             else: 
                 logging.info(f"            verification is not needed, the ub idx is {left_idx}")
                 ub_idx = left_idx
@@ -217,7 +226,7 @@ class MultiStepVerifier:
                     break
                 else:
                     pass
-            except:
+            except RuntimeError:
                 self.error_during_verification = True
                 ub_idx = ub_ub_idx-1
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
