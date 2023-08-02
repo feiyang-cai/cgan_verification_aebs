@@ -125,6 +125,7 @@ class MultiStepVerifier:
         assert latent_bounds >= 0
         self.latent_bounds = latent_bounds
         self.step = step
+        arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
 
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
@@ -338,11 +339,3 @@ class MultiStepVerifier:
         result_dict["num_calls_alpha_beta_crown"] = self.num_calls_alpha_beta_crown
         result_dict["error_during_verification"] = self.error_during_verification
         return result_dict
-
-        
-        
-        
-                    
-
-
-        

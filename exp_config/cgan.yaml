@@ -1,0 +1,44 @@
+# Configuration file for running the cifar100_tinyimagenet_resnet benchmark (cifar100_large model).
+general:
+  device: cuda
+  conv_mode: matrix
+  enable_incomplete_verification: false
+  results_file: out.txt
+  save_adv_example: false
+  #complete_verifier: mip
+model:
+  #onnx_path: single_step.onnx
+  name: Customized("custom_model_data", "MultiStep", index=0)
+  path: ./models/single_step.pth
+  input_shape: [-1, 6]
+data:
+  dataset: CGAN
+  num_outputs: 1
+specification:
+  vnnlib_path: ./temp.vnnlib
+attack:
+  pgd_order: before
+  pgd_restarts: 100
+solver:
+  batch_size: 32
+  bound_prop_method: alpha-crown
+  crown:
+    batch_size: 5000
+  beta-crown:
+    lr_alpha: 0.05
+    lr_beta: 0.1
+    iteration: 5
+  alpha-crown:
+    lr_alpha: 0.25
+    iteration: 20
+    full_conv_alpha: False
+  #prune_after_crown: True
+bab:
+  initial_max_domains: 1
+  branching:
+    method: kfsb
+    candidates: 3
+    reduceop: max
+  interm_transfer: False
+  timeout: 3600
+  
