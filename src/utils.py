@@ -133,7 +133,6 @@ class MultiStepVerifier:
         save_vnnlib(init_box, mid, neg_sign)
         for batch_size in [5000, 1000, 500, 100, 50, 10]:
             arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
-            verified_status = None
             try:
                 logging.info(f"            batch_size: {batch_size}")
                 torch.cuda.empty_cache()
@@ -147,8 +146,6 @@ class MultiStepVerifier:
             return False
         elif verified_status == "safe":
             return True
-        elif verified_status == None:
-            raise RuntimeError("abcrown failed")
         else:
             raise NotImplementedError
     
@@ -182,7 +179,7 @@ class MultiStepVerifier:
                     break
                 else:
                     pass
-            except RuntimeError:
+            except:
                 self.error_during_verification = True
                 error_found_lb = True
                 logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
@@ -190,6 +187,11 @@ class MultiStepVerifier:
         if not found_lb:
             logging.info(f"            the lb is not guaranteed greater or equal to {lbs[0]}")
             lb_idx = -1
+
+            # sometimes the error not occurs during verification but the lb is still not found
+            # example: the lb might be less than 0.0, the lb checking will only check till the "lb >= 0.0", and then skip.
+            # if there is no error, it means the lb < 0.0
+            # else the error occurs, it means the lb might be greater than 0.0
             if error_found_lb:
                 logging.info(f"            this bound cannot be verified due to error, return -2")
                 lb_idx = -2
@@ -198,10 +200,17 @@ class MultiStepVerifier:
         logging.info(f"        search for ub for idx {index}")
         left_idx = math.ceil((ub_lb - ubs[0])/(ubs[0]-lbs[0]))
         left_idx = max(left_idx, 0)
-        left_idx = min(left_idx, ub_ub_idx-1)
-        logging.info(f"            left_idx: {left_idx}, right_idx: {ub_ub_idx-1}")
-        if left_idx == ub_ub_idx-1:
+        ## the left bound should be less than or equal to the right bound
+        left_idx = min(left_idx, ub_ub_idx)
+
+        logging.info(f"            left_idx: {left_idx}, right_idx: {ub_ub_idx}")
+
+        # if the left_idx is equal to the right_idx
+        if left_idx == ub_ub_idx:
+
             if left_idx == 0:
+                ## if the left_idx is equal to zero, 
+                ## we need to check if the ub is less or equal to zero
                 logging.info(f"            checking output <= 0")
                 try:
                     if self.check_property(init_box, 0.0, "<="):
@@ -210,15 +219,21 @@ class MultiStepVerifier:
                     else:
                         logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
                         ub_idx = 0
+                
+                # if the error occurs, we set the upper bound to 0, this is over-approximation
+                # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
                 except RuntimeError:
                     logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
                     self.error_during_verification = True
                     ub_idx = 0
             else: 
+                ## if the left_idx is equal to the right_idx and not equal to zero,
+                ## ub_idx is equal to the idx of current verified cell, the other operations are not needed
                 logging.info(f"            verification is not needed, the ub idx is {left_idx}")
                 ub_idx = left_idx
             
-        for i in range(left_idx, ub_ub_idx-1):
+        # loop through the idx, the ub_ub_idx is not included because it is the upper bound of the upper bound idx
+        for i in range(left_idx, ub_ub_idx):
             logging.info(f"            checking output <= {ubs[i]}: {i}")
             try:
                 if self.check_property(init_box, ubs[i], "<="):
@@ -227,11 +242,12 @@ class MultiStepVerifier:
                     break
             except RuntimeError:
                 self.error_during_verification = True
-                ub_idx = ub_ub_idx-1
+                ub_idx = ub_ub_idx
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
         
+        # it's possible that the ub is not found through the loop, then set the ub to the ub_ub_idx
         if 'ub_idx' not in locals():
-            ub_idx = ub_ub_idx-1
+            ub_idx = ub_ub_idx
         
         logging.info(f"        lb_idx: {lb_idx}, ub_idx: {ub_idx}") 
         return (lb_idx, ub_idx)
@@ -272,13 +288,15 @@ class MultiStepVerifier:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return (-1, 0, 0, 0)
 
-        ub_ub_idx = d_idx+1
+        ub_ub_idx = d_idx
         d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, ub_ub_idx, index=0)
 
+        # -2 is the error code. TODO: acutally, d_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
         if d_lb_idx == -2 or d_ub_idx == -2:
             # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
             return [-2, -2, -2, -2]
         
+        # if d_lb_idx == -1, it means that the vehicle is already in the danger zone
         if d_lb_idx == -1:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return [-1, 0, 0, 0]
@@ -296,8 +314,10 @@ class MultiStepVerifier:
         assert v_ub_sim <= v_ub
         del outputs
 
-        ub_ub_idx = v_idx+1
+        ub_ub_idx = v_idx
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, ub_ub_idx, index=1)
+
+        # -2 is the error code. TODO: acutally, v_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
         if v_lb_idx == -2 or v_ub_idx == -2:
             # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
             return [-2, -2, -2, -2]
@@ -316,6 +336,7 @@ class MultiStepVerifier:
         interval = self.get_intervals(d_idx, v_idx)
         time_end_get_intervals = time.time()
         logging.info(f"    Interval index: {interval}")
+
         if interval == [-2, -2, -2, -2]:
             result_dict["error"] = True
             result_dict["reachable_cells"] = {(-1, -1)}
