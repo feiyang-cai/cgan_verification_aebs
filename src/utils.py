@@ -117,11 +117,12 @@ def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
         f.write(f"(assert ({sign} Y_0 {mid}))\n")
 
 class MultiStepVerifier:
-    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01):
+    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000):
         self.d_lbs = d_lbs
         self.d_ubs = d_ubs
         self.v_lbs = v_lbs
         self.v_ubs = v_ubs
+        self.simulation_samples = simulation_samples
         assert latent_bounds >= 0
         self.latent_bounds = latent_bounds
         self.step = step
@@ -130,7 +131,7 @@ class MultiStepVerifier:
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
         save_vnnlib(init_box, mid, neg_sign)
-        for batch_size in [5000, 10]:
+        for batch_size in [5000, 1000, 500, 100, 50, 10]:
             arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
             verified_status = None
             try:
@@ -224,12 +225,13 @@ class MultiStepVerifier:
                     logging.info(f"            verified, the ub idx is {i}")
                     ub_idx = i
                     break
-                else:
-                    pass
             except RuntimeError:
                 self.error_during_verification = True
                 ub_idx = ub_ub_idx-1
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
+        
+        if 'ub_idx' not in locals():
+            ub_idx = ub_ub_idx-1
         
         logging.info(f"        lb_idx: {lb_idx}, ub_idx: {ub_idx}") 
         return (lb_idx, ub_idx)
@@ -247,7 +249,7 @@ class MultiStepVerifier:
         init_box = np.array(init_box, dtype=np.float32)
 
         # simulate the system
-        samples = 10000
+        samples = self.simulation_samples
         inputs = []
         for bounds in init_box:
             inputs.append(np.random.uniform(bounds[0], bounds[1], samples).astype(np.float32))
