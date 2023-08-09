@@ -1,7 +1,7 @@
 import numpy as np
 import abcrown, arguments
 import torch
-from utils import load_model
+from load_model import load_model
 import math
 import logging
 import time
@@ -135,23 +135,55 @@ class MultiStepVerifier:
             self.step = step
             arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
 
+    def load_abcrown_setting(self, setting_idx):
+        batch_size = [4096, 1024, 512, 128, 32]
+        if setting_idx == 0:
+            # try incomplete verification first. In most cases, it is faster.
+            arguments.Config.all_args['general']['enable_incomplete_verification'] = True
+            arguments.Config.all_args['solver']['bound_prop_method'] = 'crown'
+            arguments.Config.all_args['solver']['crown']['batch_size'] = 512
+            arguments.Config.all_args['bab']['timeout'] = 360
+        else:
+            # try complete verification with alpha-crown
+            arguments.Config.all_args['general']['enable_incomplete_verification'] = False
+            arguments.Config.all_args['solver']['bound_prop_method'] = 'alpha-crown'
+            arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size[setting_idx - 1]
+
+            arguments.Config.all_args['solver']['alpha-crown']['lr_alpha'] = 0.25
+            arguments.Config.all_args['solver']['alpha-crown']['iteration'] = 20
+            arguments.Config.all_args['solver']['alpha-crown']['full_conv_alpha'] = False
+            arguments.Config.all_args['solver']['beta-crown']['lr_alpha'] = 0.05
+            arguments.Config.all_args['solver']['beta-crown']['lr_beta'] = 0.1
+            arguments.Config.all_args['solver']['beta-crown']['iteration'] = 5
+            arguments.Config.all_args['bab']['timeout'] = 600
+    
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
         save_vnnlib(init_box, mid, neg_sign)
-        for batch_size in [5000, 1000, 500, 100, 50, 10]:
-            arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size
+
+        for setting_idx in range(6): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
+            self.load_abcrown_setting(setting_idx)
             try:
-                logging.info(f"            batch_size: {batch_size}")
+                logging.info(f"                using setting {setting_idx}")
                 torch.cuda.empty_cache()
                 verified_status = abcrown.main()
-                break
+                logging.info(f"                verification status: {verified_status}")
+                if verified_status != "unknown":
+                    break
+                else:
+                    logging.info(f"                setting {setting_idx} failed")
             except:
-                logging.info(f"            batch_size: {batch_size} failed")
+                logging.info(f"                setting {setting_idx} failed")
                 continue
+
         self.num_calls_alpha_beta_crown += 1
+        if verified_status not in ["safe", "safe-incomplete", "unsafe-pgd"]:
+            self.setting_idx_for_each_call.append(-1)
+        else:
+            self.setting_idx_for_each_call.append(setting_idx)
         if verified_status == "unsafe-pgd":
             return False
-        elif verified_status == "safe":
+        elif verified_status == "safe" or verified_status == "safe-incomplete":
             return True
         else:
             raise NotImplementedError
@@ -298,10 +330,18 @@ class MultiStepVerifier:
         ub_ub_idx = d_idx
         d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, ub_ub_idx, index=0)
 
-        # -2 is the error code. TODO: acutally, d_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
-        if d_lb_idx == -2 or d_ub_idx == -2:
-            # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
-            return [-2, -2, -2, -2]
+        # -2 is the error code. 
+        # d_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
+        assert d_ub_idx != -2
+
+        # if d_lb_idx == -2, it means that the lower bound cannot be verified due to error,
+        # this means that the vehicle might be in the danger zone (overapproximation)
+        if d_lb_idx == -2:
+            return [-1, 0, 0, 0]
+
+        #if d_lb_idx == -2 or d_ub_idx == -2:
+        #    # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
+        #    return [-2, -2, -2, -2]
         
         # if d_lb_idx == -1, it means that the vehicle is already in the danger zone
         if d_lb_idx == -1:
@@ -324,10 +364,19 @@ class MultiStepVerifier:
         ub_ub_idx = v_idx
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, ub_ub_idx, index=1)
 
-        # -2 is the error code. TODO: acutally, v_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
-        if v_lb_idx == -2 or v_ub_idx == -2:
-            # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
-            return [-2, -2, -2, -2]
+        # -2 is the error code. 
+        # v_ub_idx cannot be -2, because if error occurs, the upper bound is set to the upper bound of the upper bound
+        assert v_ub_idx != -2
+
+        # if v_lb_idx == -2, it means that the lower bound cannot be verified due to error,
+        # this means that the vehicle might be in the safe zone (overapproximation)
+        if v_lb_idx == -2:
+            return [d_lb_idx, d_ub_idx, -1, v_ub_idx]
+        
+        #if v_lb_idx == -2 or v_ub_idx == -2:
+        #    # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
+        #    return [-2, -2, -2, -2]
+
         if v_ub_idx == -1:
             return [d_lb_idx, d_ub_idx, -1, -1]
 
@@ -343,7 +392,9 @@ class MultiStepVerifier:
 
         time_dict = dict()
         self.num_calls_alpha_beta_crown = 0
+        self.setting_idx_for_each_call = []
         self.error_during_verification = False
+
         time_start = time.time()
         interval = self.get_intervals(d_idx, v_idx)
         time_end_get_intervals = time.time()
@@ -381,6 +432,7 @@ class MultiStepVerifier:
         time_dict["get_intervals_time"] = time_end_get_intervals - time_start
         result_dict["time"] = time_dict
         result_dict["num_calls_alpha_beta_crown"] = self.num_calls_alpha_beta_crown
+        result_dict["setting_idx_for_each_call"] = self.setting_idx_for_each_call
         result_dict["error_during_verification"] = self.error_during_verification
         return result_dict
 

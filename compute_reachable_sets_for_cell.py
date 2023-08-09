@@ -12,8 +12,8 @@ def main():
     # Create the argument parser
     args = arguments.Config
     h = ['system parameters']
-    args.add_argument('--d_idx', type=int, default=50, help='Index of d.', hierarchy=h + ['d_idx'])
-    args.add_argument('--v_idx', type=int, default=50, help='Index of v.', hierarchy=h + ['v_idx'])
+    args.add_argument('--d_idx', type=int, default=99, help='Index of d.', hierarchy=h + ['d_idx'])
+    args.add_argument('--v_idx', type=int, default=0, help='Index of v.', hierarchy=h + ['v_idx'])
     args.add_argument('--d_range_lb', type=float, default=0.0, help='Lower bound for d.', hierarchy=h + ['d_lb'])
     args.add_argument('--d_range_ub', type=float, default=+60.0, help='Upper bound for d.', hierarchy=h + ['d_ub'])
     args.add_argument('--d_num_bin', type=int, default=100, help='Number of bins for d.', hierarchy=h + ['d_num_bin'])
@@ -66,7 +66,10 @@ def main():
     time = results["time"]["whole_time"]
     num_calls_alpha_beta_crown = results["num_calls_alpha_beta_crown"]
     logging.info(f"    Taking {time} seconds and calling alpha-beta-crown {num_calls_alpha_beta_crown} times")
+    logging.info(f"    For each call, the alpha-beta-crown setting is: {results['setting_idx_for_each_call']}")
     logging.info(f"    Reachable cells: {reachable_cells}")
+    if results['error_during_verification']:
+        logging.info(f"    Error during verification, which means the reachable set might not be tightest.")
 
 if __name__ == '__main__':
     main()
