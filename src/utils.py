@@ -9,6 +9,9 @@ import time
 from matplotlib import pyplot as plt
 from matplotlib.path import Path
 import matplotlib.patches as patches
+import pickle
+from tqdm import tqdm
+from collections import defaultdict
 
 class Plotter:
     def __init__(self, d_lbs, v_lbs) -> None:
@@ -117,16 +120,20 @@ def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
         f.write(f"(assert ({sign} Y_0 {mid}))\n")
 
 class MultiStepVerifier:
-    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000):
+    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000, reachable_cells_path=None):
         self.d_lbs = d_lbs
         self.d_ubs = d_ubs
         self.v_lbs = v_lbs
         self.v_ubs = v_ubs
-        self.simulation_samples = simulation_samples
-        assert latent_bounds >= 0
-        self.latent_bounds = latent_bounds
-        self.step = step
-        arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
+
+        if reachable_cells_path is not None:
+            self.reachable_cells = pickle.load(open(reachable_cells_path, 'rb'))
+        else:
+            self.simulation_samples = simulation_samples
+            assert latent_bounds >= 0
+            self.latent_bounds = latent_bounds
+            self.step = step
+            arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
 
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="
@@ -329,6 +336,11 @@ class MultiStepVerifier:
     def compute_next_reachable_cells(self, d_idx, v_idx):
         result_dict = dict()
 
+        if hasattr(self, 'reachable_cells'):
+            result_dict["reachable_cells"] = self.reachable_cells[(d_idx, v_idx)]
+            return result_dict
+        
+
         time_dict = dict()
         self.num_calls_alpha_beta_crown = 0
         self.error_during_verification = False
@@ -371,3 +383,37 @@ class MultiStepVerifier:
         result_dict["num_calls_alpha_beta_crown"] = self.num_calls_alpha_beta_crown
         result_dict["error_during_verification"] = self.error_during_verification
         return result_dict
+
+
+def compute_unsafe_cells(reachable_sets, d_lbs, d_ubs, v_lbs, v_ubs):
+    isSafe = np.ones((len(d_lbs), len(v_lbs)))
+    reversed_reachable_sets = defaultdict(set)
+    helper = set()
+    new_unsafe_state = []
+
+    for d_idx in tqdm(range(len(d_lbs))):
+        for v_idx in tqdm(range(len(v_lbs)), leave=False):
+            
+            if reachable_sets[(d_idx, v_idx)] == {(-1, -1)}:
+                isSafe[d_idx, v_idx] = 0
+                helper.add((d_idx, v_idx))
+                new_unsafe_state.append((d_idx, v_idx))
+                continue
+                
+            for reachable_cell in reachable_sets[(d_idx, v_idx)]:
+
+                assert len(d_lbs)>=reachable_cell[0] >= 0, f"reachable_cell: {reachable_cell}"
+                assert len(v_lbs)>=reachable_cell[1] >= 0, f"reachable_cell: {reachable_cell}"
+                reversed_reachable_sets[reachable_cell].add((d_idx, v_idx))
+    
+    while len(new_unsafe_state)>0:
+        temp = []
+        for i, j in new_unsafe_state:
+            for (_i, _j) in reversed_reachable_sets[(i, j)]:
+                if (_i, _j) not in helper:
+                    isSafe[_i, _j] = 0
+                    temp.append((_i, _j))
+                    helper.add((_i, _j))
+        new_unsafe_state = temp
+    
+    return isSafe
