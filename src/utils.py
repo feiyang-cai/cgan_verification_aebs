@@ -12,6 +12,17 @@ import matplotlib.patches as patches
 import pickle
 from tqdm import tqdm
 from collections import defaultdict
+import gc
+
+def delete_all_models_on_gpu():
+    for i in range(torch.cuda.device_count()):
+        device = torch.device(f'cuda:{i}')
+        torch.cuda.set_device(device)  # Set the current device
+        for obj in gc.get_objects():
+            if isinstance(obj, torch.nn.Module):
+                if next(obj.parameters(), None) is not None and next(obj.parameters(), None).is_cuda:
+                    del obj
+                    torch.cuda.empty_cache()
 
 class Plotter:
     def __init__(self, d_lbs, v_lbs) -> None:
@@ -165,7 +176,7 @@ class MultiStepVerifier:
             self.load_abcrown_setting(setting_idx)
             try:
                 logging.info(f"                using setting {setting_idx}")
-                torch.cuda.empty_cache()
+                delete_all_models_on_gpu()
                 verified_status = abcrown.main()
                 logging.info(f"                verification status: {verified_status}")
                 if verified_status != "unknown":
@@ -303,8 +314,6 @@ class MultiStepVerifier:
         init_box.extend([[-self.latent_bounds, self.latent_bounds]]*4*self.step)
         init_box = np.array(init_box, dtype=np.float32)
 
-        # empty the gpu memory
-        torch.cuda.empty_cache()
 
         # simulate the system
         samples = self.simulation_samples
@@ -313,17 +322,23 @@ class MultiStepVerifier:
             inputs.append(np.random.uniform(bounds[0], bounds[1], samples).astype(np.float32))
         inputs = np.stack(inputs, axis=1)
 
+        # empty the gpu memory
+        delete_all_models_on_gpu()
+
         # distance 
         arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
         model_ori = load_model().cuda()
         model_ori.eval()
         outputs = model_ori(torch.from_numpy(inputs).cuda())
+        
         del model_ori
+        torch.cuda.empty_cache()
         d_lb_sim = torch.min(outputs).item()
         d_ub_sim = torch.max(outputs).item()
         logging.info(f"    d_lb_sim: {d_lb_sim}, d_ub_sim: {d_ub_sim}")
         del outputs
+        torch.cuda.empty_cache()
         
         #assert d_ub_sim <= d_ub
         if d_lb_sim <= 0.0:
@@ -358,11 +373,13 @@ class MultiStepVerifier:
         model_ori.eval()
         outputs = model_ori(torch.from_numpy(inputs).cuda())
         del model_ori
+        torch.cuda.empty_cache()
         v_lb_sim = torch.min(outputs).item()
         v_ub_sim = torch.max(outputs).item()
         logging.info(f"    v_lb_sim: {v_lb_sim}, v_ub_sim: {v_ub_sim}")
         assert v_ub_sim <= v_ub
         del outputs
+        torch.cuda.empty_cache()
 
         ub_ub_idx = v_idx
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, ub_ub_idx, index=1)

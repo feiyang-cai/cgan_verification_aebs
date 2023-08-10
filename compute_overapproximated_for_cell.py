@@ -1,4 +1,4 @@
-from utils import load_model
+from load_model import load_model
 import arguments
 import numpy as np
 import torch
