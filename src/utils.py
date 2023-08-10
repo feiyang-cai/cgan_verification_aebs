@@ -303,6 +303,9 @@ class MultiStepVerifier:
         init_box.extend([[-self.latent_bounds, self.latent_bounds]]*4*self.step)
         init_box = np.array(init_box, dtype=np.float32)
 
+        # empty the gpu memory
+        torch.cuda.empty_cache()
+
         # simulate the system
         samples = self.simulation_samples
         inputs = []
