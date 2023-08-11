@@ -172,7 +172,7 @@ class MultiStepVerifier:
         neg_sign = "<=" if sign == ">=" else ">="
         save_vnnlib(init_box, mid, neg_sign)
 
-        for setting_idx in range(6): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
+        for setting_idx in range(1): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
             self.load_abcrown_setting(setting_idx)
             try:
                 logging.info(f"                using setting {setting_idx}")
