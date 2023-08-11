@@ -21,6 +21,7 @@ def main():
     args.add_argument('--v_num_bin', type=int, default=100, help='Number of bins for v.', hierarchy=h + ['v_num_bin'])
     args.add_argument('--latent_bounds', type=float, default=0.01, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
     args.add_argument('--simulation_samples', type=int, default=5000, help='Number of simulation samples.', hierarchy=h + ['simulation_samples'])
+    args.add_argument('--frequency', type=int, default=20, help='Frequency of the control loop.', hierarchy=h + ['frequency'])
     args.parse_config()
 
     d_range_lb = args['system parameters']['d_lb']
@@ -31,6 +32,8 @@ def main():
     v_num_bin = args['system parameters']['v_num_bin']
     latent_bounds = args['system parameters']['latent_bounds']
     simulation_samples = args['system parameters']['simulation_samples']
+    frequency = args['system parameters']['frequency']
+    assert frequency == 20 or frequency == 10 or frequency == 5
 
     d_bins = np.linspace(d_range_lb, d_range_ub, d_num_bin+1, endpoint=True)
     d_lbs = np.array(d_bins[:-1],dtype=np.float32)
@@ -40,10 +43,12 @@ def main():
     v_lbs = np.array(v_bins[:-1],dtype=np.float32)
     v_ubs = np.array(v_bins[1:], dtype=np.float32)
 
-    results_dir = f"./results/unsafe_initial_cells/d_num_bin_{d_num_bin}_v_num_bin_{v_num_bin}"
+    results_dir = f"./results/{frequency}Hz/unsafe_initial_cells/d_num_bin_{d_num_bin}_v_num_bin_{v_num_bin}"
     os.makedirs(results_dir, exist_ok=True)
 
     isSafe = np.ones((len(d_lbs), len(v_lbs)))
+    arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
+
     # load model
     arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps=1)'
     model_dist = load_model().cuda()
