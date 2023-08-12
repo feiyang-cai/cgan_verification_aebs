@@ -180,19 +180,19 @@ class MultiStepVerifier:
 
         for setting_idx in range(1): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
             self.load_abcrown_setting(setting_idx)
-            try:
-                logging.info(f"                using setting {setting_idx}")
-                delete_all_models_on_gpu()
-                logging.info(f"                gpu memory usage: {get_gpu_memory_usage()}")
-                verified_status = abcrown.main()
-                logging.info(f"                verification status: {verified_status}")
-                if verified_status != "unknown":
-                    break
-                else:
-                    logging.info(f"                setting {setting_idx} failed")
-            except:
+            #try:
+            logging.info(f"                using setting {setting_idx}")
+            delete_all_models_on_gpu()
+            logging.info(f"                gpu memory usage: {get_gpu_memory_usage()}")
+            verified_status = abcrown.main()
+            logging.info(f"                verification status: {verified_status}")
+            if verified_status != "unknown":
+                break
+            else:
                 logging.info(f"                setting {setting_idx} failed")
-                continue
+            #except:
+            #    logging.info(f"                setting {setting_idx} failed")
+            #    continue
 
         self.num_calls_alpha_beta_crown += 1
         if verified_status not in ["safe", "safe-incomplete", "unsafe-pgd"]:
