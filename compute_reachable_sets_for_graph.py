@@ -65,7 +65,7 @@ def main():
     assert server_id >= 1 and server_id <= server_total_num
 
     from src.utils import MultiStepVerifier
-    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, reachability_steps, latent_bounds, simulation_samples, frequency)
+    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, reachability_steps, latent_bounds, simulation_samples, None, frequency)
 
     start_point = len(d_lbs) // server_total_num * (server_id-1)
     end_point = len(d_lbs) // server_total_num * (server_id)
