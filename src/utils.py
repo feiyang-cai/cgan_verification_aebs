@@ -473,7 +473,7 @@ def compute_unsafe_cells(reachable_sets, d_lbs, d_ubs, v_lbs, v_ubs):
     for d_idx in tqdm(range(len(d_lbs))):
         for v_idx in tqdm(range(len(v_lbs)), leave=False):
             
-            if reachable_sets[(d_idx, v_idx)] == {(-1, -1)}:
+            if reachable_sets[(d_idx, v_idx)] == {(-4, -4)}:
                 isSafe[d_idx, v_idx] = 0
                 helper.add((d_idx, v_idx))
                 new_unsafe_state.append((d_idx, v_idx))
