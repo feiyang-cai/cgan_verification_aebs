@@ -131,7 +131,7 @@ def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
         f.write(f"(assert ({sign} Y_0 {mid}))\n")
 
 class MultiStepVerifier:
-    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000, reachable_cells_path=None):
+    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000, reachable_cells_path=None, frequency=20):
         self.d_lbs = d_lbs
         self.d_ubs = d_ubs
         self.v_lbs = v_lbs
@@ -145,6 +145,8 @@ class MultiStepVerifier:
             self.latent_bounds = latent_bounds
             self.step = step
             arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
+            arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
+            
 
     def load_abcrown_setting(self, setting_idx):
         batch_size = [4096, 1024, 512, 128, 32]
@@ -166,7 +168,7 @@ class MultiStepVerifier:
             arguments.Config.all_args['solver']['beta-crown']['lr_alpha'] = 0.05
             arguments.Config.all_args['solver']['beta-crown']['lr_beta'] = 0.1
             arguments.Config.all_args['solver']['beta-crown']['iteration'] = 5
-            arguments.Config.all_args['bab']['timeout'] = 600
+            arguments.Config.all_args['bab']['timeout'] = 360
     
     def check_property(self, init_box, mid, sign):
         neg_sign = "<=" if sign == ">=" else ">="

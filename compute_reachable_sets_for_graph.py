@@ -21,6 +21,7 @@ def main():
     args.add_argument('--reachability_steps', type=int, default=1, help='Number of reachability steps.', hierarchy=h + ['reachability_steps'])
     args.add_argument('--latent_bounds', type=float, default=0.01, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
     args.add_argument('--simulation_samples', type=int, default=10000, help='Number of simulation samples.', hierarchy=h + ['simulation_samples'])
+    args.add_argument('--frequency', type=int, default=20, help='Frequency of the control loop.', hierarchy=h + ['frequency'])
     args.add_argument('--server_id', type=int, default=1, help='Server ID.', hierarchy=h + ['server_id'])
     args.add_argument('--server_total_num', type=int, default=1, help='Total number of servers.', hierarchy=h + ['server_total_num'])
     args.parse_config()
@@ -36,8 +37,10 @@ def main():
     latent_bounds = args['system parameters']['latent_bounds']
     reachability_steps = args['system parameters']['reachability_steps']
     simulation_samples = args['system parameters']['simulation_samples']
+    frequency = args['system parameters']['frequency']
+    assert frequency == 20 or frequency == 10 or frequency == 5
 
-    result_path = f"./results/reachable_sets_graph/step_{reachability_steps}/"
+    result_path = f"./results/{frequency}Hz/reachable_sets_graph/step_{reachability_steps}/"
     os.makedirs(result_path, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_filename = os.path.join(result_path, f"log_{timestamp}.txt")
@@ -62,7 +65,7 @@ def main():
     assert server_id >= 1 and server_id <= server_total_num
 
     from src.utils import MultiStepVerifier
-    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, reachability_steps, latent_bounds, simulation_samples)
+    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, reachability_steps, latent_bounds, simulation_samples, frequency)
 
     start_point = len(d_lbs) // server_total_num * (server_id-1)
     end_point = len(d_lbs) // server_total_num * (server_id)
