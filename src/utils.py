@@ -24,6 +24,10 @@ def delete_all_models_on_gpu():
                     del obj
                     torch.cuda.empty_cache()
 
+def get_gpu_memory_usage():
+    return torch.cuda.memory_allocated() / 1024**2
+
+
 class Plotter:
     def __init__(self, d_lbs, v_lbs) -> None:
         self.fig, self.ax = plt.subplots(figsize=(8,8), dpi=200)
@@ -179,6 +183,7 @@ class MultiStepVerifier:
             try:
                 logging.info(f"                using setting {setting_idx}")
                 delete_all_models_on_gpu()
+                logging.info(f"                gpu memory usage: {get_gpu_memory_usage()}")
                 verified_status = abcrown.main()
                 logging.info(f"                verification status: {verified_status}")
                 if verified_status != "unknown":
