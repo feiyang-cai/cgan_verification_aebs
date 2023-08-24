@@ -12,17 +12,20 @@ import matplotlib.patches as patches
 import pickle
 from tqdm import tqdm
 from collections import defaultdict
+import subprocess
 import gc
+import os
+import yaml
 
-def delete_all_models_on_gpu():
-    for i in range(torch.cuda.device_count()):
-        device = torch.device(f'cuda:{i}')
-        torch.cuda.set_device(device)  # Set the current device
-        for obj in gc.get_objects():
-            if isinstance(obj, torch.nn.Module):
-                if next(obj.parameters(), None) is not None and next(obj.parameters(), None).is_cuda:
-                    del obj
-                    torch.cuda.empty_cache()
+#def delete_all_models_on_gpu():
+#    for i in range(torch.cuda.device_count()):
+#        device = torch.device(f'cuda:{i}')
+#        torch.cuda.set_device(device)  # Set the current device
+#        for obj in gc.get_objects():
+#            if isinstance(obj, torch.nn.Module):
+#                if next(obj.parameters(), None) is not None and next(obj.parameters(), None).is_cuda:
+#                    del obj
+#                    torch.cuda.empty_cache()
 
 def get_gpu_memory_usage():
     return torch.cuda.memory_allocated() / 1024**2
@@ -148,63 +151,146 @@ class MultiStepVerifier:
             assert latent_bounds >= 0
             self.latent_bounds = latent_bounds
             self.step = step
+            self.frequency = frequency
+
             arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
             arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
             
 
-    def load_abcrown_setting(self, setting_idx):
+    def load_abcrown_setting(self, setting_idx, output_idx, num_steps, controller_freq, vnnpath, spec_path="./temp.vnnlib"):
+        # setting_idx: 0, 1, 2, 3, 4, 5
+        settings = {
+            'general': {
+                'device': 'cuda',
+                'conv_mode': 'matrix',
+                'results_file': 'results.txt',
+            },
+
+            'model': {
+                'name': f'Customized("custom_model_data", "MultiStep", index={output_idx}, num_steps={num_steps})',
+                'path': f'./models/single_step_{controller_freq}Hz.pth',
+                'input_shape': [-1, 2 + num_steps * 4],
+            },
+            
+            'data': {
+                'dataset': 'CGAN',
+                'num_outputs': 1,
+            },
+            
+            'specification': {
+                'vnnlib_path': f"{vnnpath}",
+            },
+
+            'solver': {
+                'batch_size': 1,
+                'auto_enlarge_batch_size': True,
+            },
+
+            'attack': {
+                'pgd_order': 'before',
+                'pgd_restarts': 100
+            },
+
+            'bab': {
+                'initial_max_domains': 100,
+                'branching': {
+                    'method': 'sb',
+                    'sb_coeff_thresh': 0.01,
+                    'input_split': {
+                        'enable': True,
+                        'catch_assertion': True,
+                    },
+                },
+                'timeout': 20,
+            }
+        }
+        
         batch_size = [4096, 1024, 512, 128, 32]
         if setting_idx == 0:
-            # try incomplete verification first. In most cases, it is faster.
-            arguments.Config.all_args['general']['enable_incomplete_verification'] = True
-            arguments.Config.all_args['solver']['bound_prop_method'] = 'crown'
-            arguments.Config.all_args['solver']['crown']['batch_size'] = 512
-            arguments.Config.all_args['bab']['timeout'] = 360
+            settings['general']['enable_incomplete_verification'] = True
+            settings['solver']['bound_prop_method'] = 'crown'
+            settings['solver']['crown'] = {'batch_size': 512}
+            
         else:
             # try complete verification with alpha-crown
-            arguments.Config.all_args['general']['enable_incomplete_verification'] = False
-            arguments.Config.all_args['solver']['bound_prop_method'] = 'alpha-crown'
-            arguments.Config.all_args['solver']['crown']['batch_size'] = batch_size[setting_idx - 1]
-
-            arguments.Config.all_args['solver']['alpha-crown']['lr_alpha'] = 0.25
-            arguments.Config.all_args['solver']['alpha-crown']['iteration'] = 20
-            arguments.Config.all_args['solver']['alpha-crown']['full_conv_alpha'] = False
-            arguments.Config.all_args['solver']['beta-crown']['lr_alpha'] = 0.05
-            arguments.Config.all_args['solver']['beta-crown']['lr_beta'] = 0.1
-            arguments.Config.all_args['solver']['beta-crown']['iteration'] = 5
-            arguments.Config.all_args['bab']['timeout'] = 360
+            settings['general']['enable_incomplete_verification'] = False
+            settings['solver']['bound_prop_method'] = 'alpha-crown'
+            settings['solver']['crown'] = {'batch_size' : batch_size[setting_idx - 1]}
+            settings['solver']['alpha-crown'] = {'lr_alpha': 0.25, 'iteration': 20, 'full_conv_alpha': False}
+            settings['solver']['beta-crown'] = {'lr_alpha': 0.05, 'lr_beta': 0.1, 'iteration': 5}
+        
+        with open(spec_path, 'w') as f:
+            yaml.dump(settings, f)
     
-    def check_property(self, init_box, mid, sign):
-        neg_sign = "<=" if sign == ">=" else ">="
-        save_vnnlib(init_box, mid, neg_sign)
+    def read_results(self, result_path):
+        if os.path.exists(result_path):
+            with open(result_path, "rb") as f:
+                lines = pickle.load(f)
+                results = lines['results'][0][0]
+                #results = pickle.load(f)['results'][0][0]
+            return results
 
-        for setting_idx in range(1): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
-            self.load_abcrown_setting(setting_idx)
-            #try:
+        else:
+            return "unknown"
+    
+    def check_property(self, init_box, mid, sign, idx):
+        neg_sign = "<=" if sign == ">=" else ">="
+        spec_path = "./temp.vnnlib"
+        config_path = "./cgan.yaml"
+        result_path = "./results.txt"
+        ## clean the file first
+        os.remove(spec_path)
+        assert not os.path.exists(spec_path)
+        save_vnnlib(init_box, mid, neg_sign, spec_path="./temp.vnnlib")
+
+        for setting_idx in range(6): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
+            if os.path.exists(result_path):
+                os.remove(result_path)
+            if os.path.exists(config_path):
+                os.remove(config_path)
+            assert not os.path.exists(config_path)
+            assert not os.path.exists(result_path)
+
+            self.load_abcrown_setting(setting_idx, output_idx=idx, num_steps=self.step, controller_freq=self.frequency, vnnpath=spec_path, spec_path=config_path)
+
             logging.info(f"                using setting {setting_idx}")
-            delete_all_models_on_gpu()
             logging.info(f"                gpu memory usage: {get_gpu_memory_usage()}")
-            verified_status = abcrown.main()
+
+            ### verify the property
+            #verified_status = abcrown.main()
+
+            ### using subprocess to run the verification
+            ### this is because the abcrown will change the gpu memory usage, and we need to clear the memory after each verification
+            tool_dir = os.environ.get('TOOL_DIR')
+            process = subprocess.Popen(["python", 
+                                        os.path.join(tool_dir, "complete_verifier/abcrown.py"),
+                                        "--config",
+                                        "./cgan.yaml"])
+            process.wait()
+
+            verified_status = self.read_results(result_path)
+
             logging.info(f"                verification status: {verified_status}")
-            if verified_status != "unknown":
+            if verified_status != "unknown" and verified_status != "timed out":
                 break
             else:
                 logging.info(f"                setting {setting_idx} failed")
-            #except:
-            #    logging.info(f"                setting {setting_idx} failed")
-            #    continue
 
         self.num_calls_alpha_beta_crown += 1
+
         if verified_status not in ["safe", "safe-incomplete", "unsafe-pgd"]:
             self.setting_idx_for_each_call.append(-1)
         else:
             self.setting_idx_for_each_call.append(setting_idx)
-        if verified_status == "unsafe-pgd":
+
+        if verified_status == "unsafe-pgd" or verified_status == "unsafe-pgd (timed out)":
             return False
-        elif verified_status == "safe" or verified_status == "safe-incomplete":
+        elif verified_status == "safe" or verified_status == "safe-incomplete" or verified_status == "safe-incomplete (timed out)":
             return True
+        elif verified_status == "unknown" or verified_status == "timed out":
+            return None
         else:
-            raise NotImplementedError
+            raise NotImplementedError(f"The verification status {verified_status} is not implemented")
     
     def get_overlapping_cells(self, lb_ub, ub_lb, init_box, ub_ub_idx, index):
         # lb_ub: the lower bound of the upper bound
@@ -228,18 +314,21 @@ class MultiStepVerifier:
         error_found_lb = False
         for i in range(right_idx, -1, -1):
             logging.info(f"            checking output >= {lbs[i]}: {i}")
-            try:
-                if self.check_property(init_box, lbs[i], ">="):
-                    logging.info(f"            verified, the lb idx is {i}")
-                    found_lb = True
-                    lb_idx = i
-                    break
-                else:
-                    pass
-            except:
+            result = self.check_property(init_box, lbs[i], ">=", index)
+            
+            if result == None:
                 self.error_during_verification = True
+
+                
                 error_found_lb = True
                 logging.info(f"            error occurs when checking output >= {lbs[i]}: {i}")
+                continue
+            
+            if result:
+                logging.info(f"            verified, the lb idx is {i}")
+                found_lb = True
+                lb_idx = i
+                break
 
         if not found_lb:
             logging.info(f"            the lb is not guaranteed greater or equal to {lbs[0]}")
@@ -269,20 +358,23 @@ class MultiStepVerifier:
                 ## if the left_idx is equal to zero, 
                 ## we need to check if the ub is less or equal to zero
                 logging.info(f"            checking output <= 0")
-                try:
-                    if self.check_property(init_box, 0.0, "<="):
+                result = self.check_property(init_box, 0.0, "<=", index)
+
+                if result == None:
+                # if the error occurs, we set the upper bound to 0, this is over-approximation
+                # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
+                    logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
+                    self.error_during_verification = True
+                    ub_idx = 0
+                
+                else: 
+                    if result:
                         logging.info(f"            verified, the ub idx is {-1}")
                         ub_idx = -1
                     else:
                         logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
                         ub_idx = 0
                 
-                # if the error occurs, we set the upper bound to 0, this is over-approximation
-                # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
-                except RuntimeError:
-                    logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
-                    self.error_during_verification = True
-                    ub_idx = 0
             else: 
                 ## if the left_idx is equal to the right_idx and not equal to zero,
                 ## ub_idx is equal to the idx of current verified cell, the other operations are not needed
@@ -292,15 +384,19 @@ class MultiStepVerifier:
         # loop through the idx, the ub_ub_idx is not included because it is the upper bound of the upper bound idx
         for i in range(left_idx, ub_ub_idx):
             logging.info(f"            checking output <= {ubs[i]}: {i}")
-            try:
-                if self.check_property(init_box, ubs[i], "<="):
-                    logging.info(f"            verified, the ub idx is {i}")
-                    ub_idx = i
-                    break
-            except RuntimeError:
+
+            result = self.check_property(init_box, ubs[i], "<=", index)
+
+            if result == None:
                 self.error_during_verification = True
                 ub_idx = ub_ub_idx
                 logging.info(f"            error occurs when checking output <= {ubs[i]}: {i}")
+                continue
+            
+            if result:
+                logging.info(f"            verified, the ub idx is {i}")
+                ub_idx = i
+                break
         
         # it's possible that the ub is not found through the loop, then set the ub to the ub_ub_idx
         if 'ub_idx' not in locals():
@@ -329,9 +425,6 @@ class MultiStepVerifier:
             inputs.append(np.random.uniform(bounds[0], bounds[1], samples).astype(np.float32))
         inputs = np.stack(inputs, axis=1)
 
-        # empty the gpu memory
-        delete_all_models_on_gpu()
-
         # distance 
         arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
@@ -344,6 +437,7 @@ class MultiStepVerifier:
         d_lb_sim = torch.min(outputs).item()
         d_ub_sim = torch.max(outputs).item()
         logging.info(f"    d_lb_sim: {d_lb_sim}, d_ub_sim: {d_ub_sim}")
+
         del outputs
         torch.cuda.empty_cache()
         
@@ -351,6 +445,10 @@ class MultiStepVerifier:
         if d_lb_sim <= 0.0:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
             return (-1, 0, 0, 0)
+
+
+        d_sim_lb_idx = math.floor((d_lb_sim - self.d_lbs[0])/(self.d_ubs[0]-self.d_lbs[0]))
+        d_sim_ub_idx = math.ceil((d_ub_sim - self.d_lbs[0])/(self.d_ubs[0]-self.d_lbs[0]))
 
         ub_ub_idx = d_idx
         d_lb_idx, d_ub_idx = self.get_overlapping_cells(d_lb_sim, d_ub_sim, init_box, ub_ub_idx, index=0)
@@ -362,7 +460,7 @@ class MultiStepVerifier:
         # if d_lb_idx == -2, it means that the lower bound cannot be verified due to error,
         # this means that the vehicle might be in the danger zone (overapproximation)
         if d_lb_idx == -2:
-            return [-1, 0, 0, 0]
+            return [-1, 0, 0, 0], [d_sim_lb_idx, d_sim_ub_idx, 0, 0]
 
         #if d_lb_idx == -2 or d_ub_idx == -2:
         #    # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
@@ -371,7 +469,7 @@ class MultiStepVerifier:
         # if d_lb_idx == -1, it means that the vehicle is already in the danger zone
         if d_lb_idx == -1:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
-            return [-1, 0, 0, 0]
+            return [-1, 0, 0, 0], [d_sim_lb_idx, d_sim_ub_idx, 0, 0]
 
         # velocity
         arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps={self.step})'
@@ -388,6 +486,9 @@ class MultiStepVerifier:
         del outputs
         torch.cuda.empty_cache()
 
+        v_sim_lb_idx = math.floor((v_lb_sim - self.v_lbs[0])/(self.v_ubs[0]-self.v_lbs[0]))
+        v_sim_ub_idx = math.ceil((v_ub_sim - self.v_lbs[0])/(self.v_ubs[0]-self.v_lbs[0]))
+
         ub_ub_idx = v_idx
         v_lb_idx, v_ub_idx = self.get_overlapping_cells(v_lb_sim, v_ub_sim, init_box, ub_ub_idx, index=1)
 
@@ -398,16 +499,16 @@ class MultiStepVerifier:
         # if v_lb_idx == -2, it means that the lower bound cannot be verified due to error,
         # this means that the vehicle might be in the safe zone (overapproximation)
         if v_lb_idx == -2:
-            return [d_lb_idx, d_ub_idx, -1, v_ub_idx]
+            return [d_lb_idx, d_ub_idx, -1, v_ub_idx], [d_sim_lb_idx, d_sim_ub_idx, v_sim_lb_idx, v_sim_ub_idx]
         
         #if v_lb_idx == -2 or v_ub_idx == -2:
         #    # the bounds cannot be verified due to error, return (-2, -2, -2, -2)
         #    return [-2, -2, -2, -2]
 
         if v_ub_idx == -1:
-            return [d_lb_idx, d_ub_idx, -1, -1]
+            return [d_lb_idx, d_ub_idx, -1, -1], [d_sim_lb_idx, d_sim_ub_idx, v_sim_lb_idx, v_sim_ub_idx]
 
-        return [d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx]
+        return [d_lb_idx, d_ub_idx, v_lb_idx, v_ub_idx], [d_sim_lb_idx, d_sim_ub_idx, v_sim_lb_idx, v_sim_ub_idx]
     
     def compute_next_reachable_cells(self, d_idx, v_idx):
         result_dict = dict()
@@ -423,10 +524,11 @@ class MultiStepVerifier:
         self.error_during_verification = False
 
         time_start = time.time()
-        interval = self.get_intervals(d_idx, v_idx)
+        interval, sim_interval = self.get_intervals(d_idx, v_idx)
         time_end_get_intervals = time.time()
         logging.info(f"    Interval index: {interval}")
 
+        result_dict["sim_interval"] = sim_interval
         if interval == [-2, -2, -2, -2]:
             result_dict["error"] = True
             result_dict["reachable_cells"] = {(-1, -1)}
