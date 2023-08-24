@@ -239,7 +239,8 @@ class MultiStepVerifier:
         config_path = "./cgan.yaml"
         result_path = "./results.txt"
         ## clean the file first
-        os.remove(spec_path)
+        if os.path.exists(spec_path):
+            os.remove(spec_path)
         assert not os.path.exists(spec_path)
         save_vnnlib(init_box, mid, neg_sign, spec_path="./temp.vnnlib")
 
