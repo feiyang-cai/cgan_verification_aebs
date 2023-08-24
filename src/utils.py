@@ -444,7 +444,7 @@ class MultiStepVerifier:
         #assert d_ub_sim <= d_ub
         if d_lb_sim <= 0.0:
             # the vehicle is already in the danger zone, return (-1, 0, 0, 0)
-            return (-1, 0, 0, 0)
+            return (-1, 0, 0, 0), (-1, 0, 0, 0)
 
 
         d_sim_lb_idx = math.floor((d_lb_sim - self.d_lbs[0])/(self.d_ubs[0]-self.d_lbs[0]))
