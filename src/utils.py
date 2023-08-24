@@ -201,7 +201,7 @@ class MultiStepVerifier:
                         'catch_assertion': True,
                     },
                 },
-                'timeout': 20,
+                'timeout': 300,
             }
         }
         
