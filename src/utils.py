@@ -158,7 +158,7 @@ class MultiStepVerifier:
             
 
     def load_abcrown_setting(self, setting_idx, output_idx, num_steps, controller_freq, vnnpath, spec_path="./temp.vnnlib"):
-        # setting_idx: 0, 1, 2, 3, 4, 5
+        # setting_idx: 0, 1, 2, 3, 4, 5, 6, 7
         settings = {
             'general': {
                 'device': 'cuda',
@@ -205,7 +205,7 @@ class MultiStepVerifier:
             }
         }
         
-        batch_size = [4096, 1024, 512, 128, 32]
+        batch_size = [4096, 1024, 512, 128, 32, 16, 8]
         if setting_idx == 0:
             settings['general']['enable_incomplete_verification'] = True
             settings['solver']['bound_prop_method'] = 'crown'
@@ -244,7 +244,7 @@ class MultiStepVerifier:
         assert not os.path.exists(spec_path)
         save_vnnlib(init_box, mid, neg_sign, spec_path="./temp.vnnlib")
 
-        for setting_idx in range(6): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
+        for setting_idx in range(8): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
             if os.path.exists(result_path):
                 os.remove(result_path)
             if os.path.exists(config_path):
