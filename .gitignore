@@ -1,3 +1,5 @@
 __pycache__/
 *.vnnlib
 *.vnnlib.compiled
+results/*/reachable_sets_graph/step_1/*.txt
+results/*/reachable_sets_graph/step_1/results*.pkl

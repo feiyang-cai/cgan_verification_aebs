@@ -345,6 +345,28 @@ class MultiStepVerifier:
         
         ## search the ub
         logging.info(f"        search for ub for idx {index}")
+        ### TODO: since the ub_lb might smaller than 0, which will 
+        ### cause the left_idx to be negative, 
+        ### we need to check if the right_idx is negative first
+        #temp = (ub_lb - ubs[0])/ (ubs[0]-lbs[0])
+        if ub_lb <= 0.0:
+            logging.info(f"            checking output <= 0")
+            result = self.check_property(init_box, 0.0, "<=", index)
+            if result == None:
+            # if the error occurs, we set the upper bound to 0, this is over-approximation
+            # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
+                logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
+                self.error_during_verification = True
+                
+            else: 
+                if result:
+                    logging.info(f"            verified, the ub idx is {-1}")
+                    return (-1, -1)
+                else:
+                    logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
+            
+
+        
         left_idx = math.ceil((ub_lb - ubs[0])/(ubs[0]-lbs[0]))
         left_idx = max(left_idx, 0)
         ## the left bound should be less than or equal to the right bound
