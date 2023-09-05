@@ -349,9 +349,11 @@ class MultiStepVerifier:
         ### cause the left_idx to be negative, 
         ### we need to check if the right_idx is negative first
         #temp = (ub_lb - ubs[0])/ (ubs[0]-lbs[0])
+        checked_less_zero = False
         if ub_lb <= 0.0:
             logging.info(f"            checking output <= 0")
             result = self.check_property(init_box, 0.0, "<=", index)
+            checked_less_zero = True
             if result == None:
             # if the error occurs, we set the upper bound to 0, this is over-approximation
             # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
@@ -380,23 +382,29 @@ class MultiStepVerifier:
             if left_idx == 0:
                 ## if the left_idx is equal to zero, 
                 ## we need to check if the ub is less or equal to zero
-                logging.info(f"            checking output <= 0")
-                result = self.check_property(init_box, 0.0, "<=", index)
+                if not checked_less_zero:
+                    logging.info(f"            checking output <= 0")
+                    result = self.check_property(init_box, 0.0, "<=", index)
 
-                if result == None:
-                # if the error occurs, we set the upper bound to 0, this is over-approximation
-                # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
-                    logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
+                    if result == None:
+                    # if the error occurs, we set the upper bound to 0, this is over-approximation
+                    # example: if the real ub is less than 0.0, however, we cannot prove it due to error, we use idx=0 as the upper bound
+                        logging.info(f"            error occurs when checking output <= 0, set the upper bound to 0")
+                        self.error_during_verification = True
+                        ub_idx = 0
+                
+                    else: 
+                        if result:
+                            logging.info(f"            verified, the ub idx is {-1}")
+                            ub_idx = -1
+                        else:
+                            logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
+                            ub_idx = 0
+                else:
+                    logging.info(f"            error occurs when checking output <= 0 before, set the upper bound to 0")
                     self.error_during_verification = True
                     ub_idx = 0
-                
-                else: 
-                    if result:
-                        logging.info(f"            verified, the ub idx is {-1}")
-                        ub_idx = -1
-                    else:
-                        logging.info(f"            the ub is not guaranteed less or equal to {ubs[0]}")
-                        ub_idx = 0
+                    
                 
             else: 
                 ## if the left_idx is equal to the right_idx and not equal to zero,
