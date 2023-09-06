@@ -279,14 +279,14 @@ class MultiStepVerifier:
 
         self.num_calls_alpha_beta_crown += 1
 
-        if verified_status not in ["safe", "safe-incomplete", "unsafe-pgd", "unsafe-bab"]:
+        if verified_status not in ["safe", "safe-incomplete", "unsafe-pgd", "unsafe-bab", "safe-incomplete (timed out)"]:
             self.setting_idx_for_each_call.append(-1)
         else:
             self.setting_idx_for_each_call.append(setting_idx)
 
         if verified_status == "unsafe-pgd" or verified_status == "unsafe-bab":
             return False
-        elif verified_status == "safe" or verified_status == "safe-incomplete":
+        elif verified_status == "safe" or verified_status == "safe-incomplete" or verified_status == "safe-incomplete (timed out)":
             return True
         elif verified_status == "unknown" or verified_status == "timed out":
             return None
