@@ -24,6 +24,7 @@ def main():
     args.add_argument('--reachability_steps', type=int, default=1, help='Number of reachability steps.', hierarchy=h + ['reachability_steps'])
     args.add_argument('--latent_bounds', type=float, default=0.01, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
     args.add_argument('--frequency', type=int, default=20, help='Frequency of the control loop.', hierarchy=h + ['frequency'])
+    args.add_argument('--ViT', action='store_true', help='Use ViT to compute the reachable set.', hierarchy=h + ['ViT'])
     args.parse_config()
 
     d_idx = args['system parameters']['d_idx']
@@ -38,9 +39,13 @@ def main():
     reachability_steps = args['system parameters']['reachability_steps']
     simulation_samples = args['system parameters']['simulation_samples']
     frequency = args['system parameters']['frequency']
+    is_ViT = args['system parameters']['ViT']
     assert frequency == 20 or frequency == 10 or frequency == 5
 
-    result_path = f"./results/{frequency}Hz/reachable_sets_cell/step_{reachability_steps}/"
+    if is_ViT:
+        result_path = f"./results/ViT/{frequency}Hz/reachable_sets_cell/step_{reachability_steps}/"
+    else:
+        result_path = f"./results/{frequency}Hz/reachable_sets_cell/step_{reachability_steps}/"
     os.makedirs(result_path, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -62,7 +67,7 @@ def main():
     v_lbs = np.array(v_bins[:-1],dtype=np.float32)
     v_ubs = np.array(v_bins[1:], dtype=np.float32)
 
-    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, reachability_steps, latent_bounds, simulation_samples, None, frequency)
+    verifier = MultiStepVerifier(d_lbs, d_ubs, v_lbs, v_ubs, is_ViT, reachability_steps, latent_bounds, simulation_samples, None, frequency)
     logging.info(f"Computing reachable set for cell ({d_idx}, {v_idx})")
     results = verifier.compute_next_reachable_cells(d_idx, v_idx)
     reachable_cells = results["reachable_cells"]

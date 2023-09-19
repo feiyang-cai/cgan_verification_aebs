@@ -138,7 +138,7 @@ def save_vnnlib(input_bounds, mid, sign, spec_path="./temp.vnnlib"):
         f.write(f"(assert ({sign} Y_0 {mid}))\n")
 
 class MultiStepVerifier:
-    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, step=1, latent_bounds=0.01, simulation_samples=10000, reachable_cells_path=None, frequency=20):
+    def __init__(self, d_lbs, d_ubs, v_lbs, v_ubs, is_ViT=False, step=1, latent_bounds=0.01, simulation_samples=10000, reachable_cells_path=None, frequency=20):
         self.d_lbs = d_lbs
         self.d_ubs = d_ubs
         self.v_lbs = v_lbs
@@ -152,9 +152,13 @@ class MultiStepVerifier:
             self.latent_bounds = latent_bounds
             self.step = step
             self.frequency = frequency
+            self.is_ViT = is_ViT
 
             arguments.Config.all_args['model']['input_shape'] = [-1, 2 + step * 4]
-            arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
+            if not is_ViT:
+                arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
+            else:
+                arguments.Config.all_args['model']['path'] = f'./models/single_step_vit_{frequency}Hz.pth'
             
 
     def load_abcrown_setting(self, setting_idx, output_idx, num_steps, controller_freq, vnnpath, spec_path="./temp.vnnlib"):
@@ -204,6 +208,10 @@ class MultiStepVerifier:
                 'timeout': 300,
             }
         }
+
+        if self.is_ViT:
+            settings['model']['name'] = f'Customized("custom_model_data", "MultiStepViT", index={output_idx}, num_steps={num_steps})'
+            settings['model']['path'] = f'./models/single_step_vit_{controller_freq}Hz.pth'
         
         batch_size = [4096, 1024, 512, 128, 32, 16, 8]
         if setting_idx == 0:
@@ -457,7 +465,10 @@ class MultiStepVerifier:
         inputs = np.stack(inputs, axis=1)
 
         # distance 
-        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps={self.step})'
+        if not self.is_ViT:
+            arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps={self.step})'
+        else:
+            arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStepViT", index=0, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
         model_ori = load_model().cuda()
         model_ori.eval()
@@ -503,7 +514,10 @@ class MultiStepVerifier:
             return [-1, 0, 0, 0], [d_sim_lb_idx, d_sim_ub_idx, 0, 0]
 
         # velocity
-        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps={self.step})'
+        if not self.is_ViT:
+            arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps={self.step})'
+        else:
+            arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStepViT", index=1, num_steps={self.step})'
         # in order to save the gpu memory, we load the model for each simulation
         model_ori = load_model().cuda()
         model_ori.eval()
