@@ -22,6 +22,7 @@ def main():
     args.add_argument('--latent_bounds', type=float, default=0.01, help='Bounds for latent variables.', hierarchy=h + ['latent_bounds'])
     args.add_argument('--simulation_samples', type=int, default=5000, help='Number of simulation samples.', hierarchy=h + ['simulation_samples'])
     args.add_argument('--frequency', type=int, default=20, help='Frequency of the control loop.', hierarchy=h + ['frequency'])
+    args.add_argument('--ViT', action='store_true', help='Use ViT to compute the reachable set.', hierarchy=h + ['ViT'])
     args.parse_config()
 
     d_range_lb = args['system parameters']['d_lb']
@@ -33,6 +34,7 @@ def main():
     latent_bounds = args['system parameters']['latent_bounds']
     simulation_samples = args['system parameters']['simulation_samples']
     frequency = args['system parameters']['frequency']
+    is_ViT = args['system parameters']['ViT']
     assert frequency == 20 or frequency == 10 or frequency == 5
 
     d_bins = np.linspace(d_range_lb, d_range_ub, d_num_bin+1, endpoint=True)
@@ -43,18 +45,30 @@ def main():
     v_lbs = np.array(v_bins[:-1],dtype=np.float32)
     v_ubs = np.array(v_bins[1:], dtype=np.float32)
 
-    results_dir = f"./results/{frequency}Hz/unsafe_initial_cells/d_num_bin_{d_num_bin}_v_num_bin_{v_num_bin}"
+    if is_ViT:
+        results_dir = f"./results/ViT/{frequency}Hz/unsafe_initial_cells/d_num_bin_{d_num_bin}_v_num_bin_{v_num_bin}"
+    else:
+        results_dir = f"./results/{frequency}Hz/unsafe_initial_cells/d_num_bin_{d_num_bin}_v_num_bin_{v_num_bin}"
     os.makedirs(results_dir, exist_ok=True)
 
     isSafe = np.ones((len(d_lbs), len(v_lbs)))
-    arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
+    if is_ViT:
+        arguments.Config.all_args['model']['path'] = f'./models/single_step_vit_{frequency}Hz.pth'
+    else:
+        arguments.Config.all_args['model']['path'] = f'./models/single_step_{frequency}Hz.pth'
 
     # load model
-    arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps=1)'
+    if is_ViT:
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStepViT", index=0, num_steps=1)'
+    else:
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=0, num_steps=1)'
     model_dist = load_model().cuda()
     model_dist.eval()
 
-    arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps=1)'
+    if is_ViT:
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStepViT", index=1, num_steps=1)'
+    else:
+        arguments.Config.all_args['model']['name'] = f'Customized("custom_model_data", "MultiStep", index=1, num_steps=1)'
     model_vel = load_model().cuda()
     model_vel.eval()
 
