@@ -252,7 +252,7 @@ class MultiStepVerifier:
         assert not os.path.exists(spec_path)
         save_vnnlib(init_box, mid, neg_sign, spec_path="./temp.vnnlib")
 
-        for setting_idx in range(8): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
+        for setting_idx in range(2): # try different settings, starting from incomplete verification, and then complete verification with different batch sizes
             if os.path.exists(result_path):
                 os.remove(result_path)
             if os.path.exists(config_path):
