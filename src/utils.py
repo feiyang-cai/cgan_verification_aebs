@@ -253,7 +253,7 @@ class MultiStepVerifier:
         save_vnnlib(init_box, mid, neg_sign, spec_path="./temp.vnnlib")
         
         if self.is_ViT:
-            setting_list = [1, 2, 3]
+            setting_list = [3]
         else:
             setting_list = [0, 1, 2, 3]
         
